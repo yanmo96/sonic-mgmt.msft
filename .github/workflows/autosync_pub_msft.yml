@@ -1,0 +1,117 @@
+name: SyncFromPublicToMsft
+
+on:
+  # Automatically trigger at 00:00(UTC) everyday
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-and-push:
+    if: github.repository_owner == 'Azure'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup env
+        run: |
+          set -ex
+
+          sudo apt update
+          sudo apt install -y gh jq
+
+          git config --global user.email "sonicbld@microsoft.com"
+          git config --global user.name "Sonic Automation"
+          git config --global pull.rebase false
+
+          sudo rm -rf sonic-mgmt.msft
+          git clone https://github.com/Azure/sonic-mgmt.msft  # dst repo
+
+          pushd sonic-mgmt.msft
+          git remote add head https://github.com/sonic-net/sonic-mgmt   # src repo
+          git fetch head
+
+      - name: Sync code from public to msft
+        run: |
+          set -ex
+
+          branches="202412"
+          pushd sonic-mgmt.msft
+
+          [ -z "$branches" ] && exit 1
+
+          for branch in $branches; do
+            branch_base=$branch
+            branch_head=$branch
+
+            if [[ $branch_head == "202412" ]]; then
+              branch_head=202411
+            fi
+
+            git ls-remote origin refs/heads/$branch_base || continue
+            git ls-remote head refs/heads/$branch_head || continue
+
+            head_commit=$(git log -n 1 --format=%H head/$branch_head)
+            git log --format=%H origin/$branch_base | grep $head_commit && continue
+
+            git checkout -b foo origin/$branch_base || true
+            git branch -D $branch_base || true
+            git checkout -b $branch_base --track origin/$branch_base
+
+            git reset HEAD --hard
+            git clean -xdff
+            git status
+            git status | grep "^nothing to commit, working tree clean" || continue
+
+
+            prehead=$(git log -n 1 --pretty=format:'%H')
+            git pull head $branch_head --no-commit || true
+            # git merge --allow-unrelated-histories --no-edit head/branch_head
+            git status
+
+            if ! git status | grep "^nothing to commit, working tree clean";then
+              # code conflict
+              if git status | grep "You have unmerged paths";then
+                echo "======There are conflicts...======"
+                git merge --abort
+                exit 1
+              fi
+            fi
+            GIT_EDITOR=true git merge --continue || true
+
+            head=$(git log -n 1 --pretty=format:'%H')
+            if [[ $prehead == $head ]];then
+              echo "======No change after merging...======"
+              continue
+            fi
+            echo "======Diff logs======"
+            git log $prehead..HEAD --graph --pretty=format:'%h -%d %s (%cs) [%aN]'
+            body=$(git log $prehead..HEAD --graph --pretty=format:'%h -%d %s (%cs) [%aN]')
+            body='```<br>'$body'<br>```'
+
+            # push code
+            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/Azure/sonic-mgmt.msft HEAD:$branch_base
+
+          done
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Teams Notification
+        if: failure()
+        run: |
+          curl -H 'Content-Type: application/json' -d '{
+            "text": "**GitHub Action fails**\n
+            - **repo:** '${{ github.repository }}'\n
+            - **workflow:** '${{ github.workflow }}'\n
+            - **trigger:** '${{ github.actor }}'\n
+            - **details:** [details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          }' "${{ secrets.TEAMS_WEBHOOK_URL }}
