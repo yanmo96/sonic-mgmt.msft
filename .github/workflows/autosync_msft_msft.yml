@@ -57,7 +57,7 @@ jobs:
         if: failure()
         run: |
           curl -H 'Content-Type: application/json' -d '{
-            "text": "** Sync fails from 202412 to 202503 **\n
+            "text": "**Sync fails from 202412 to 202503**\n
             - **repo:** '${{ github.repository }}'\n
             - **workflow:** '${{ github.workflow }}'\n
             - **trigger:** '${{ github.actor }}'\n

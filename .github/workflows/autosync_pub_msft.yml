@@ -109,7 +109,7 @@ jobs:
         if: failure()
         run: |
           curl -H 'Content-Type: application/json' -d '{
-            "text": "**GitHub Action fails**\n
+            "text": "**Sync fails from public 202412 to msft 202412**\n
             - **repo:** '${{ github.repository }}'\n
             - **workflow:** '${{ github.workflow }}'\n
             - **trigger:** '${{ github.actor }}'\n
