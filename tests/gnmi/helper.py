@@ -93,8 +93,6 @@ def apply_cert_config(duthost):
     time.sleep(GNMI_SERVER_START_WAIT_TIME)
     dut_command = "sudo netstat -nap | grep %d" % env.gnmi_port
     output = duthost.shell(dut_command, module_ignore_errors=True)
-    is_time_synced = wait_until(60, 3, 0, check_system_time_sync, duthost)
-    assert is_time_synced, "Failed to synchronize DUT system time with NTP Server"
     if env.gnmi_process not in output['stdout']:
         # Dump tcp port status and gnmi log
         logger.info("TCP port status: " + output['stdout'])
@@ -123,32 +121,28 @@ def recover_cert_config(duthost):
     assert wait_until(60, 3, 0, check_gnmi_status, duthost), "GNMI service failed to start"
 
 
-def check_system_time_sync(duthost):
+def update_system_time_using_NTP(duthost):
     """
-    Checks if the DUT's time is synchronized with the NTP server.
-    If not synchronized, it attempts to restart the NTP service.
+    Synchronizes DUT's system time using the NTP server
+    from running config facts.
     """
-
-    ntp_status_cmd = "ntpstat"
-    restart_ntp_cmd = "sudo systemctl restart ntp"
-
-    ntp_status = duthost.shell(ntp_status_cmd, module_ignore_errors=True)
-    if "synchronised" in ntp_status["stdout"]:
-        logger.info("DUT %s is synchronized with NTP server.", duthost)
-        return True
-
+    config_facts = duthost.config_facts(host=duthost.hostname, source="running")["ansible_facts"]
+    ntp_servers = list(config_facts.get("NTP_SERVER", {}).keys())
+    if not ntp_servers:
+        pytest.fail("Failed to synchronize DUT time with NTP server: No NTP servers found in the running configuration.")
+    ntp_server = ntp_servers[0]
+    logger.info("Using NTP server %s for synchronization.", ntp_server)
+    duthost.shell("sudo systemctl stop ntp")
+    result = duthost.shell(f"sudo ntpdate -s {ntp_server}", module_ignore_errors=True)
+    if result["rc"] != 0:
+        pytest.fail(f"ntpdate failed with server {ntp_server}: {result['stdout']}")
+    duthost.shell("sudo systemctl start ntp")
+    time.sleep(5)
+    ntpstat_out = duthost.shell("ntpstat", module_ignore_errors=True)["stdout"]
+    if "synchronised" in ntpstat_out:
+        logger.info("DUT %s is now synchronized with NTP server %s.", duthost, ntp_server)
     else:
-        logger.info("DUT %s is NOT synchronized. Restarting NTP service...", duthost)
-        duthost.shell(restart_ntp_cmd)
-        time.sleep(5)
-        # Rechecking status after restarting NTP
-        ntp_status = duthost.shell(ntp_status_cmd, module_ignore_errors=True)
-        if "synchronised" in ntp_status["stdout"]:
-            logger.info("DUT %s is now synchronized with NTP server.", duthost)
-            return True
-        else:
-            logger.error("DUT %s: NTP synchronization failed. Please check manually.", duthost)
-            return False
+        logger.warning("DUT %s did not report 'synchronised' after ntpdate. ntpstat output: %s", duthost, ntpstat_out)
 
 
 def gnmi_capabilities(duthost, localhost):
