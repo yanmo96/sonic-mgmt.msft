@@ -4,7 +4,7 @@ import logging
 
 from tests.common.helpers.assertions import pytest_require as pyrequire
 from tests.common.helpers.dut_utils import check_container_state
-from tests.gnmi.helper import gnmi_container, apply_cert_config, recover_cert_config, create_ext_conf
+from tests.gnmi.helper import gnmi_container, apply_cert_config, recover_cert_config, create_ext_conf, update_system_time_using_NTP
 from tests.gnmi.helper import GNMI_SERVER_START_WAIT_TIME
 from tests.generic_config_updater.gu_utils import create_checkpoint, rollback
 
@@ -156,3 +156,4 @@ def check_dut_timestamp(duthosts, rand_one_dut_hostname, localhost):
     time_diff = local_time - dut_time
     if time_diff >= GNMI_SERVER_START_WAIT_TIME:
         logger.warning("DUT time is wrong (%d), please check NTP" % (-time_diff))
+        update_system_time_using_NTP(duthost)
