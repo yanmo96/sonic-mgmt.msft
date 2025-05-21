@@ -11,6 +11,7 @@ MULTICAST_CTRS = 4
 
 pytestmark = [
     pytest.mark.topology('any'),
+    pytest.mark.disable_route_check,
     pytest.mark.device_type('vs')
 ]
 
