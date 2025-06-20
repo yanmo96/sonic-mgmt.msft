@@ -95,16 +95,7 @@ def get_ntp_daemon_in_use(host):
 
 @pytest.fixture(scope="module")
 def ntp_daemon_in_use(duthost):
-    ntpsec_conf_stat = duthost.stat(path="/etc/ntpsec/ntp.conf")
-    if ntpsec_conf_stat["stat"]["exists"]:
-        return NtpDaemon.NTPSEC
-    chrony_conf_stat = duthost.stat(path="/etc/chrony/chrony.conf")
-    if chrony_conf_stat["stat"]["exists"]:
-        return NtpDaemon.CHRONY
-    ntp_conf_stat = duthost.stat(path="/etc/ntp.conf")
-    if ntp_conf_stat["stat"]["exists"]:
-        return NtpDaemon.NTP
-    pytest.fail("Unable to determine NTP daemon in use")
+    return get_ntp_daemon_in_use(duthost)
 
 
 def check_ntp_status(host, ntp_daemon_in_use):
