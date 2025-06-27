@@ -6250,6 +6250,76 @@ class FullMeshTrafficSanity(sai_base_test.ThriftInterfaceDataPlane):
         assert len(failed_pairs) == 0, "Traffic failed between {}".format(failed_pairs)
 
 
+class VoqWatchdogTest(sai_base_test.ThriftInterfaceDataPlane):
+    def runTest(self):
+        switch_init(self.clients)
+
+        # Parse input parameters
+        dscp = int(self.test_params['dscp'])
+        router_mac = self.test_params['router_mac']
+        sonic_version = self.test_params['sonic_version']
+        dst_port_id = int(self.test_params['dst_port_id'])
+        dst_port_ip = self.test_params['dst_port_ip']
+        dst_port_mac = self.dataplane.get_mac(0, dst_port_id)
+        src_port_id = int(self.test_params['src_port_id'])
+        src_port_ip = self.test_params['src_port_ip']
+        src_port_vlan = self.test_params['src_port_vlan']
+        src_port_mac = self.dataplane.get_mac(0, src_port_id)
+        voq_watchdog_enabled = self.test_params['voq_watchdog_enabled']
+        asic_type = self.test_params['sonic_asic_type']
+        pkts_num = int(self.test_params['pkts_num'])
+
+        pkt_dst_mac = router_mac if router_mac != '' else dst_port_mac
+        # get counter names to query
+        ingress_counters, egress_counters = get_counter_names(sonic_version)
+
+        # Prepare IP packet data
+        ttl = 64
+        if 'packet_size' in list(self.test_params.keys()):
+            packet_length = int(self.test_params['packet_size'])
+        else:
+            packet_length = 64
+
+        is_dualtor = self.test_params.get('is_dualtor', False)
+        def_vlan_mac = self.test_params.get('def_vlan_mac', None)
+        if is_dualtor and def_vlan_mac is not None:
+            pkt_dst_mac = def_vlan_mac
+
+        pkt = construct_ip_pkt(packet_length,
+                               pkt_dst_mac,
+                               src_port_mac,
+                               src_port_ip,
+                               dst_port_ip,
+                               dscp,
+                               src_port_vlan,
+                               ttl=ttl)
+
+        log_message("test dst_port_id: {}, src_port_id: {}, src_vlan: {}".format(
+            dst_port_id, src_port_id, src_port_vlan), to_stderr=True)
+        # in case dst_port_id is part of LAG, find out the actual dst port
+        # for given IP parameters
+        dst_port_id = get_rx_port(
+            self, 0, src_port_id, pkt_dst_mac, dst_port_ip, src_port_ip, src_port_vlan
+        )
+        log_message("actual dst_port_id: {}".format(dst_port_id), to_stderr=True)
+
+        self.sai_thrift_port_tx_disable(self.dst_client, asic_type, [dst_port_id])
+        pre_offsets = init_log_check(self)
+
+        try:
+            # send packets
+            send_packet(self, src_port_id, pkt, pkts_num)
+
+            # allow enough time to trigger voq watchdog
+            time.sleep(WATCHDOG_TIMEOUT_SECONDS["voq"] * 1.3)
+
+            # verify voq watchdog is triggered
+            verify_log(self, pre_offsets, voq_watchdog_enabled, "voq")
+
+        finally:
+            self.sai_thrift_port_tx_enable(self.dst_client, asic_type, [dst_port_id])
+
+
 class OqWatchdogTest(sai_base_test.ThriftInterfaceDataPlane):
     def runTest(self):
         switch_init(self.clients)

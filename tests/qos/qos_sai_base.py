@@ -11,6 +11,7 @@ import six
 import copy
 import time
 import collections
+from contextlib import contextmanager
 
 from tests.common.fixtures.ptfhost_utils import ptf_portmap_file  # noqa F401
 from tests.common.helpers.assertions import pytest_assert, pytest_require
@@ -2736,54 +2737,6 @@ def set_port_cir(interface, rate):
                         "Changing lacp timer multiplier to default for %s in %s" % (neighbor_lag_member, peer_device))
                     vm_host.no_lacp_time_multiplier(neighbor_lag_member)
 
-    @pytest.fixture(scope='class', autouse=True)
-    def disable_voq_watchdog(self, duthosts, get_src_dst_asic_and_duts, dutConfig):
-        dst_dut = get_src_dst_asic_and_duts['dst_dut']
-        dst_asic = get_src_dst_asic_and_duts['dst_asic']
-        dut_list = [dst_dut]
-        asic_index_list = [dst_asic.asic_index]
-
-        if not get_src_dst_asic_and_duts["single_asic_test"]:
-            src_dut = get_src_dst_asic_and_duts['src_dut']
-            src_asic = get_src_dst_asic_and_duts['src_asic']
-            dut_list.append(src_dut)
-            asic_index_list.append(src_asic.asic_index)
-            # fabric card asics
-            for rp_dut in duthosts.supervisor_nodes:
-                for asic in rp_dut.asics:
-                    dut_list.append(rp_dut)
-                    asic_index_list.append(asic.asic_index)
-
-        if dst_dut.facts['asic_type'] != "cisco-8000" or not dst_dut.sonichost.is_multi_asic:
-            yield
-            return
-
-        # Disable voq watchdog.
-        for (dut, asic_index) in zip(dut_list, asic_index_list):
-            copy_set_voq_watchdog_script_cisco_8000(
-                dut=dut,
-                asic=asic_index,
-                enable=False)
-            cmd_opt = "-n asic{}".format(asic_index)
-            if not dst_dut.sonichost.is_multi_asic:
-                cmd_opt = ""
-            dut.shell("sudo show platform npu script {} -s set_voq_watchdog.py".format(cmd_opt))
-
-        yield
-
-        # Enable voq watchdog.
-        for (dut, asic_index) in zip(dut_list, asic_index_list):
-            copy_set_voq_watchdog_script_cisco_8000(
-                dut=dut,
-                asic=asic_index,
-                enable=True)
-            cmd_opt = "-n asic{}".format(asic_index)
-            if not dst_dut.sonichost.is_multi_asic:
-                cmd_opt = ""
-            dut.shell("sudo show platform npu script {} -s set_voq_watchdog.py".format(cmd_opt))
-
-        return
-
     def get_port_channel_members(self, dut, port_name):
         """
         Get the members of portchannel on the given port.
@@ -2803,6 +2756,68 @@ def set_port_cir(interface, rate):
                 interfaces = members
                 break
         return interfaces
+
+    def voq_watchdog_enabled(self, get_src_dst_asic_and_duts):
+        dst_dut = get_src_dst_asic_and_duts['dst_dut']
+        if not is_cisco_device(dst_dut):
+            return False
+        namespace_option = "-n asic0" if dst_dut.facts.get("modular_chassis") else ""
+        show_command = "show platform npu global {}".format(namespace_option)
+        result = run_dshell_command(dst_dut, show_command)
+        pattern = r"voq_watchdog_enabled +: +True"
+        match = re.search(pattern, result["stdout"])
+        return match
+
+    def modify_voq_watchdog(self, duthosts, get_src_dst_asic_and_duts, dutConfig, enable):
+        # Skip if voq watchdog is not enabled.
+        if not self.voq_watchdog_enabled(get_src_dst_asic_and_duts):
+            logger.info("voq_watchdog is not enabled, skipping modify voq watchdog")
+            return
+
+        dst_dut = get_src_dst_asic_and_duts['dst_dut']
+        dst_asic = get_src_dst_asic_and_duts['dst_asic']
+        dut_list = [dst_dut]
+        asic_index_list = [dst_asic.asic_index]
+
+        if not get_src_dst_asic_and_duts["single_asic_test"]:
+            src_dut = get_src_dst_asic_and_duts['src_dut']
+            src_asic = get_src_dst_asic_and_duts['src_asic']
+            dut_list.append(src_dut)
+            asic_index_list.append(src_asic.asic_index)
+            # fabric card asics
+            for rp_dut in duthosts.supervisor_nodes:
+                for asic in rp_dut.asics:
+                    dut_list.append(rp_dut)
+                    asic_index_list.append(asic.asic_index)
+
+        # Modify voq watchdog.
+        for (dut, asic_index) in zip(dut_list, asic_index_list):
+            copy_set_voq_watchdog_script_cisco_8000(
+                dut=dut,
+                asic=asic_index,
+                enable=enable)
+            cmd_opt = "-n asic{}".format(asic_index)
+            if not dst_dut.sonichost.is_multi_asic:
+                cmd_opt = ""
+            dut.shell("sudo show platform npu script {} -s set_voq_watchdog.py".format(cmd_opt))
+
+    @contextmanager
+    def disable_voq_watchdog(self, duthosts, get_src_dst_asic_and_duts, dutConfig):
+        # Disable voq watchdog.
+        self.modify_voq_watchdog(duthosts, get_src_dst_asic_and_duts, dutConfig, enable=False)
+        yield
+        # Enable voq watchdog.
+        self.modify_voq_watchdog(duthosts, get_src_dst_asic_and_duts, dutConfig, enable=True)
+
+    @pytest.fixture(scope='function')
+    def disable_voq_watchdog_function_scope(self, duthosts, get_src_dst_asic_and_duts, dutConfig):
+        with self.disable_voq_watchdog(duthosts, get_src_dst_asic_and_duts, dutConfig) as result:
+            yield result
+
+    @pytest.fixture(scope='class')
+    def disable_voq_watchdog_class_scope(self, duthosts, get_src_dst_asic_and_duts, dutConfig):
+        with self.disable_voq_watchdog(duthosts, get_src_dst_asic_and_duts, dutConfig) as result:
+            yield result
 
     def oq_watchdog_enabled(self, get_src_dst_asic_and_duts):
         dst_dut = get_src_dst_asic_and_duts['dst_dut']
