@@ -152,6 +152,7 @@ class GenerateGoldenConfigDBModule(object):
         else:
             return True
         return True
+
     def get_config_from_minigraph(self):
         rc, out, err = self.module.run_command("sonic-cfggen -H -m -j /etc/sonic/init_cfg.json --print-data")
         if rc != 0:
@@ -164,7 +165,7 @@ class GenerateGoldenConfigDBModule(object):
             self.module.fail_json(msg="Failed to get config from runningconfiguration: {}".format(err))
 
         return out
-        
+
     def overwrite_feature_golden_config_db_multiasic(self, config, feature_key):
         full_config = json.loads(config)
         if config == "{}" or "FEATURE" not in config["localhost"]:
@@ -193,7 +194,7 @@ class GenerateGoldenConfigDBModule(object):
                 feature_section.update(feature_data)
                 ns_data["FEATURE"] = feature_section
 
-        return json.dumps(gold_config_db, indent=4)        
+        return json.dumps(gold_config_db, indent=4)
 
     def overwrite_feature_golden_config_db_singleasic(self, config, feature_key):
         full_config = config
@@ -257,7 +258,7 @@ class GenerateGoldenConfigDBModule(object):
         Generate golden_config for FT2 to enable FEC.
         **Only PORT table is updated**.
         """
-        SUPPORTED_TOPO = ["ft2-64", "lt2-p32o64", "lt2-o128-d110u14"]
+        SUPPORTED_TOPO = ["ft2-64", "lt2-p32o64", "lt2-o128"]
         if self.topo_name not in SUPPORTED_TOPO:
             return "{}"
         SUPPORTED_PORT_SPEED = ["200000", "400000", "800000"]
@@ -289,44 +290,6 @@ class GenerateGoldenConfigDBModule(object):
             rendered_json = safe_open_template(GOLDEN_CONFIG_TEMPLATE_PATH).render(profile)
 
         return rendered_json
-
-    def update_dns_config(self, config):
-        # Generate dns_server related configuration
-        rc, out, err = self.module.run_command("cat {}".format(DNS_CONFIG_PATH))
-        if rc != 0:
-            self.module.fail_json(msg="Failed to get dns config: {}".format(err))
-        try:
-            dns_config_obj = json.loads(out)
-        except json.JSONDecodeError:
-            self.module.fail_json(msg="Invalid JSON in DNS config: {}".format(out))
-        if "DNS_NAMESERVER" in dns_config_obj:
-            ori_config_db = json.loads(config)
-            if multi_asic.is_multi_asic():
-                for key, value in ori_config_db.items():
-                    value.update(dns_config_obj)
-            else:
-                ori_config_db.update(dns_config_obj)
-            return json.dumps(ori_config_db, indent=4)
-        else:
-            return config
-
-    def generate_lt2_ft2_golden_config_db(self):
-        """
-        Generate golden_config for FT2 to enable FEC.
-        **Only PORT table is updated**.
-        """
-        SUPPORTED_TOPO = ["ft2-64", "lt2-p32o64", "lt2-o128"]
-        if self.topo_name not in SUPPORTED_TOPO:
-            return "{}"
-        SUPPORTED_PORT_SPEED = ["200000", "400000", "800000"]
-        ori_config = json.loads(self.get_config_from_minigraph())
-        port_config = ori_config.get("PORT", {})
-        for name, config in port_config.items():
-            # Enable FEC for ports with supported speed
-            if config["speed"] in SUPPORTED_PORT_SPEED and "fec" not in config:
-                config["fec"] = "rs"
-
-        return json.dumps({"PORT": port_config}, indent=4)
 
     def generate(self):
         module_msg = "Success to generate golden_config_db.json"
@@ -362,6 +325,7 @@ class GenerateGoldenConfigDBModule(object):
         with open(GOLDEN_CONFIG_DB_PATH, "w") as temp_file:
             temp_file.write(config)
         self.module.exit_json(change=True, msg=module_msg)
+
 
 def main():
     generate_golden_config_db = GenerateGoldenConfigDBModule()
