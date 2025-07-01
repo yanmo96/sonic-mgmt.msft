@@ -152,6 +152,7 @@ class GenerateGoldenConfigDBModule(object):
         else:
             return True
         return True
+
     def get_config_from_minigraph(self):
         rc, out, err = self.module.run_command("sonic-cfggen -H -m -j /etc/sonic/init_cfg.json --print-data")
         if rc != 0:
@@ -164,7 +165,7 @@ class GenerateGoldenConfigDBModule(object):
             self.module.fail_json(msg="Failed to get config from runningconfiguration: {}".format(err))
 
         return out
-        
+
     def overwrite_feature_golden_config_db_multiasic(self, config, feature_key):
         full_config = json.loads(config)
         if config == "{}" or "FEATURE" not in config["localhost"]:
@@ -193,7 +194,7 @@ class GenerateGoldenConfigDBModule(object):
                 feature_section.update(feature_data)
                 ns_data["FEATURE"] = feature_section
 
-        return json.dumps(gold_config_db, indent=4)        
+        return json.dumps(gold_config_db, indent=4)
 
     def overwrite_feature_golden_config_db_singleasic(self, config, feature_key):
         full_config = config
@@ -257,7 +258,7 @@ class GenerateGoldenConfigDBModule(object):
         Generate golden_config for FT2 to enable FEC.
         **Only PORT table is updated**.
         """
-        SUPPORTED_TOPO = ["ft2-64", "lt2-p32o64", "lt2-o128-d110u14"]
+        SUPPORTED_TOPO = ["ft2-64", "lt2-p32o64", "lt2-o128"]
         if self.topo_name not in SUPPORTED_TOPO:
             return "{}"
         SUPPORTED_PORT_SPEED = ["200000", "400000", "800000"]
@@ -324,6 +325,7 @@ class GenerateGoldenConfigDBModule(object):
         with open(GOLDEN_CONFIG_DB_PATH, "w") as temp_file:
             temp_file.write(config)
         self.module.exit_json(change=True, msg=module_msg)
+
 
 def main():
     generate_golden_config_db = GenerateGoldenConfigDBModule()
