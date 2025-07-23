@@ -85,7 +85,7 @@ jobs:
               if git status | grep "You have unmerged paths";then
                 echo "======There are conflicts...======"
                 git merge --abort
-                exit 1
+                continue
               fi
             fi
             GIT_EDITOR=true git merge --continue || true
