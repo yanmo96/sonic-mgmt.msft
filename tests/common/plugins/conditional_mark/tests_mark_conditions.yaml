@@ -203,12 +203,6 @@ bgp/test_bgp_gr_helper.py::test_bgp_gr_helper_routes_perserved:
     conditions:
       - "'-v6-' in topo_name"
 
-bgp/test_bgp_gr_helper.py::test_bgp_gr_helper_routes_perserved:
-  xfail:
-    reason: "xfail for IPv6-only topologies"
-    conditions:
-      - "'-v6-' in topo_name"
-
 bgp/test_bgp_multipath_relax.py:
   skip:
     reason: "Not supported topology backend."
